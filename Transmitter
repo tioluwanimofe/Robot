@@ -1,0 +1,121 @@
+#include <nRF24L01.h>
+#include <printf.h>
+#include <RF24.h>
+#include <RF24_config.h>
+
+#define XCENTER 513
+#define YCENTER 540
+#define XTRAVEL 200
+#define YTRAVEL 200
+
+int JoyX = A0;
+int LedPin = 9;
+int JoyY = A1;
+int ButtonGray = 4;
+int ButtonGreen = 5;
+int ButtonBlack = 3;
+int ButtonYellow = 6;
+
+struct robot_pkt {
+  unsigned int sequence;
+  int speed;
+  int steering;
+  int gripper_grip;
+  int gripper_height;
+} ;
+struct robot_pkt pkt;
+
+unsigned int seq;
+
+RF24 radio(7, 8); // CE, CSN
+const byte address[6] = "31412";  //Address should be unique for each robot - 5 bytes
+const byte address2[6] = "12341";
+void setup() {
+  pinMode(ButtonBlack, INPUT_PULLUP);
+  pinMode(ButtonGray, INPUT_PULLUP);
+  pinMode(ButtonYellow, INPUT_PULLUP);
+  pinMode(ButtonGreen, INPUT_PULLUP);
+  pinMode(LedPin, OUTPUT);
+  Serial.begin(9600);
+  Serial.println(“TiO MaDe me !!!”);
+  printf_begin();
+  Serial.println("Opening Radio");
+  if (!radio.begin()) {
+    Serial.println(F("radio hardware not responding!"));
+    while (1) {} // hold program in infinite loop to prevent subsequent errors
+  }
+  radio.setChannel(10);
+  Serial.println("Setting Power");
+  radio.setPALevel(RF24_PA_LOW);
+  Serial.println("Opening Pipe");
+  radio.openWritingPipe(address);
+  radio.openReadingPipe(1, address2);
+  //Power level can be set to RF24_PA_MIN, RF24_PA_LOW, RF24_PA_HIGH and RF24_PA_MAX
+  //Keep it at MIN for testing short range
+
+  radio.printDetails();
+  radio.stopListening();
+  seq = 0;
+
+  Serial.println("Transmitting");
+}
+void loop() {
+  int ret;
+  int ButtonState;
+  int ButtonState2;
+  int ButtonState3;
+  int ButtonState4;
+  seq++; //increment sequence counter
+  //Serial.println(seq);
+  pkt.sequence = seq;
+  pkt.speed = analogRead(JoyY);
+  if (pkt.speed < (YCENTER - YTRAVEL)) pkt.speed = (YCENTER - YTRAVEL);
+  if (pkt.speed > (YCENTER + YTRAVEL)) pkt.speed = (YCENTER + YTRAVEL);
+  pkt.speed = map(pkt.speed, 540 - 200, 540 + 200, -255, 255);
+  pkt.steering = analogRead(JoyX);
+  if (pkt.steering < (XCENTER - XTRAVEL)) pkt.steering = (XCENTER - XTRAVEL);
+  if (pkt.steering > (XCENTER + XTRAVEL)) pkt.steering = (XCENTER + XTRAVEL);
+  pkt.steering = map(pkt.steering, 540 - 200, 540 + 200, -255, 255);
+
+  ButtonState = digitalRead(ButtonGray);
+  if (ButtonState == LOW) {
+    pkt.gripper_height = 0;
+    while (digitalRead(ButtonGray) == LOW); // Wait until I release the button
+    delay(10);
+  }
+  ButtonState2 = digitalRead(ButtonGreen);
+  if (ButtonState2 == LOW) {
+    pkt.gripper_height = 180;
+    while (digitalRead(ButtonGreen) == LOW); // Wait until I release the button
+    delay(10);
+  }
+  ButtonState3 = digitalRead(ButtonYellow);
+  if (ButtonState3 == LOW) {
+    pkt.gripper_grip = 180;
+    while (digitalRead(ButtonYellow) == LOW); // Wait until I release the button
+    delay(10);
+  }
+  ButtonState4 = digitalRead(ButtonBlack);
+  if (ButtonState4 == LOW) {
+    pkt.gripper_grip = 0;
+    while (digitalRead(ButtonBlack) == LOW); // Wait until I release the button
+    delay(10);
+  }
+
+  ret = radio.write(&pkt, sizeof(pkt));
+  // Serial.println(ret);
+  delay(100); //This can be faster for the real robot
+  //but since we are writing data out the
+  //serial port we need to go slow enough
+  //for the receiver to keep up
+  if (Serial.available()) {
+    radio.printDetails();
+    while (Serial.available()) Serial.read();
+  }
+  if (pkt.sequence & 1) {
+    digitalWrite(LedPin, HIGH);
+    delay(10);
+  }
+  else digitalWrite(LedPin, LOW);
+  delay(10);
+}
